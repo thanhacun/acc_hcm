@@ -236,7 +236,7 @@ def main():
             if args.zip:
                 try:
                     dbu.ZipFile(path, './temp.zip')
-                    meta = dbu.UpLoadFile(args.upload_path, './temp.zip', path.split('/')[-1] + '.zip')
+                    meta = dbu.UpLoadFile(args.upload_path, './temp.zip', new_name + '.zip')
                 except Exception as e:
                     print('Error happen', e)
             else:
@@ -246,7 +246,7 @@ def main():
                     'id': meta.id, 'original_name': path.split('/')[-1], 
                     'new_name': meta.name, 
                     # 'hash': dbu.FileHash('./temp.zip'), 
-                    'hase': meta.content_hash,
+                    'hash': meta.content_hash,
                     'server_modified': meta.server_modified})
             else:
                 print('Upload not successfully.')
