@@ -1,5 +1,6 @@
 import os, argparse, dropbox, time, re
 from os import walk
+from math import ceil
 # from functools import reduce
 # from dropbox.exceptions import AuthError
 from dotenv import dotenv_values
@@ -78,9 +79,18 @@ class DropBoxUpload:
     def FileHash(self, local_file_path):
         print(f'Compute {local_file_path} content hash -- It may take a long time!')
         hasher = DropboxContentHasher()
+        range = 50
+        complete_sign = '='
+        not_complete_sign = ' '
+        file_size = os.path.getsize(local_file_path)
+        chunked_size = 0
+        percent = int(ceil((chunked_size  / file_size) * 100))
         with open(local_file_path, 'rb') as f:  # Slow for big file
             while True:
                 chunk = f.read(1024)
+                chunked_size += 1024
+                percent = 100 if chunked_size > file_size else int(ceil((chunked_size / file_size) * 100))
+                print('[', round(percent * range / 100) * complete_sign, round(range*(100 - percent) / 100) * not_complete_sign, ']', end='\r')
                 if len(chunk) == 0:
                     break
                 hasher.update(chunk)
@@ -115,7 +125,7 @@ class DropBoxUpload:
                 uploaded_original_names = [row['original_name'] for row in history if row['hash'] in set(remote_file_hashs)]
                 # print(uploaded_original_names, local_files_list)
                 files_need_to_upload = [n for n in local_files_list if n not in uploaded_original_names]
-        except dropbox.files.DownloadError as e:
+        except dropbox.exceptions.ApiError as e:
             print('Error happen in FileNeedUpload', e)
             files_need_to_upload = [n for n in local_files_list]
 
@@ -170,7 +180,7 @@ class DropBoxUpload:
             with open('./temp_history.csv', 'r') as csv_file:
                 rows = list(csv.DictReader(csv_file))
             with open(f'./temp_history.csv', 'w') as csv_file:
-                field_names = ['id', 'original_name', 'new_name', 'hash']
+                field_names = ['id', 'original_name', 'new_name', 'hash', 'server_modified']
                 writer = csv.DictWriter(csv_file, fieldnames=field_names)
                 writer.writeheader()
                 writer.writerows(rows)
@@ -214,18 +224,22 @@ def main():
             print(path, '=>', path, 'on Dropbox', '=>', new_name, 'by rename')
             meta = dbu.UpLoadFile(args.upload_path, path, new_name)
             if isinstance(meta, dropbox.files.FileMetadata):
-                update_history_rows.append({'id': meta.id, 'original_name': path.split('/')[-1], 'new_name': meta.name, 'hash': dbu.FileHash(path)})
+                update_history_rows.append({
+                    'id': meta.id, 'original_name': path.split('/')[-1], 
+                    'new_name': meta.name, 'hash': dbu.FileHash(path), 'server_modified': meta.server_modified})
             else:
                 print('Upload not successfully.')
         if update_history_rows:
             meta = dbu.UpdateHistory(args.upload_path, update_history_rows)
             if isinstance(meta, dropbox.files.Metadata):
                 print('History updated successfully!')
-                try:
-                    os.remove('./temp_history.csv')
-                    print('Cleanup done!')
-                except FileNotFoundError:
-                    print('File not found', FileNotFoundError)
+
+        try:
+            os.remove('./temp_history.csv')
+            print('Cleanup done!')
+        except FileNotFoundError:
+            print('File not found', FileNotFoundError)
+
     else:
         dbu = DropBoxUpload(timeout=args.timeout, chunk=args.chunk)
         res = dbu.UpLoadFile(args.upload_path, args.file_path)
