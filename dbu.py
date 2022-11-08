@@ -5,6 +5,7 @@ from math import ceil
 # from dropbox.exceptions import AuthError
 from dotenv import dotenv_values
 import csv
+from zipfile import ZipFile, ZIP_DEFLATED
 
 from up_to_dropbox import *
 from dropbox_content_hasher import DropboxContentHasher
@@ -206,12 +207,22 @@ class DropBoxUpload:
             file_name = original_filename
         return file_name
 
+    def ZipFile(self, local_file_path, local_zip_path):
+        print(f'Zipping {local_file_path} ... -- It may take time!')
+        try:
+            with ZipFile(local_zip_path, 'w', ZIP_DEFLATED, compresslevel=5) as zip_file:
+                zip_file.write(local_file_path)
+        except Exception as e:
+            print('Error happen in ZipFile', e)
+            raise e
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('upload_path', type=str, help='path in dropbox, empty if root folder')
     parser.add_argument('file_path', type=str, help='path to file to upload, in monthly_mode this is the folder name')
     parser.add_argument('--mode', type=str, default='', help='Upload mode: default, folder or monthly')
     parser.add_argument('--re', type=str, default='', help='regex for daily backup file to extract filename and datetime')  # only need in customize case
+    parser.add_argument('--zip', type=bool, default=False, help='Zip the file or not')
     parser.add_argument('--timeout', type=int, default=900)
     parser.add_argument('--chunk', type=int, default=8, help='chunk size in MB')
     args = parser.parse_args()
@@ -221,8 +232,15 @@ def main():
         file_paths = dbu.FileNeedUpload(args.upload_path, args.file_path)
         update_history_rows = []
         for path, new_name in file_paths:
-            print(path, '=>', path, 'on Dropbox', '=>', new_name, 'by rename')
-            meta = dbu.UpLoadFile(args.upload_path, path, new_name)
+            print(path, '=>', path, 'on Dropbox', '=>', new_name)
+            if args.zip:
+                try:
+                    dbu.ZipFile(path, './temp.zip')
+                    meta = dbu.UpLoadFile(args.upload_path, './temp.zip', path.split('/')[-1] + '.zip')
+                except Exception as e:
+                    print('Error happen', e)
+            else:
+                meta = dbu.UpLoadFile(args.upload_path, path, new_name)
             if isinstance(meta, dropbox.files.FileMetadata):
                 update_history_rows.append({
                     'id': meta.id, 'original_name': path.split('/')[-1], 
@@ -242,8 +260,17 @@ def main():
 
     else:
         dbu = DropBoxUpload(timeout=args.timeout, chunk=args.chunk)
-        res = dbu.UpLoadFile(args.upload_path, args.file_path)
-        if isinstance(res, dropbox.files.FileMetadata):
+        meta = None
+        if args.zip:
+            try:
+                dbu.ZipFile(args.file_path, './temp.zip')
+                meta = dbu.UpLoadFile(args.upload_path, './temp.zip', args.file_path.split('/')[-1] + '.zip')
+                os.remove('./temp.zip')
+            except Exception as e:
+                print('Error happen', e)
+        else:
+            meta = dbu.UpLoadFile(args.upload_path, args.file_path)
+        if isinstance(meta, dropbox.files.FileMetadata):
             print('Successfully uploaded!')
         else:
             print('Cannot upload!')
