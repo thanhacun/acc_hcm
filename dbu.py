@@ -244,7 +244,10 @@ def main():
             if isinstance(meta, dropbox.files.FileMetadata):
                 update_history_rows.append({
                     'id': meta.id, 'original_name': path.split('/')[-1], 
-                    'new_name': meta.name, 'hash': dbu.FileHash('./temp.zip'), 'server_modified': meta.server_modified})
+                    'new_name': meta.name, 
+                    # 'hash': dbu.FileHash('./temp.zip'), 
+                    'hase': meta.content_hash,
+                    'server_modified': meta.server_modified})
             else:
                 print('Upload not successfully.')
         if update_history_rows:
