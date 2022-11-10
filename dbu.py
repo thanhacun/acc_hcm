@@ -207,7 +207,7 @@ class DropBoxUpload:
             with ZipFile(local_zip_path, 'w', ZIP_DEFLATED, compresslevel=5) as _zip:
                 _zip.fp.write = types.MethodType(partial(progress, file_size, _zip.fp.write), _zip.fp)
                 _zip.write(local_file_path, arcname=basename(local_file_path))  # do NOT keep the absolute directory
-                progress.bar.close()
+            progress.bar.close()
         except Exception as e:
             print('Error happen in ZipFile', e)
             raise e
