@@ -1,5 +1,5 @@
 * Create app secrets on Dropbox => then get the refresh token
-* Mount backups folder
+* Mount backups folder with credentials
 * Syntax for running backup
 - Normal:
 - Folder: python dbu.py '/remote_folder' './local_folder' --mode folder [--zip True]

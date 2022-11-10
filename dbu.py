@@ -124,6 +124,7 @@ class DropBoxUpload:
 
         history = None
         try:
+            print('Getting uploaded history...')
             dropbox_download_file(f'{remote_folder_path}/history.csv', './temp_history.csv')
             with open('./temp_history.csv', 'r') as csv_file:
                 history = list(csv.DictReader(csv_file))
@@ -153,6 +154,7 @@ class DropBoxUpload:
         # - Write to the csv file values
         rows = []
         try:
+            print('Update uploaded history...')
             with open('./temp_history.csv', 'r') as csv_file:
                 rows = list(csv.DictReader(csv_file))
             with open(f'./temp_history.csv', 'w') as csv_file:
