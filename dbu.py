@@ -1,14 +1,16 @@
 import os, argparse, dropbox, time, re
 from os import walk
-from math import ceil
-# from functools import reduce
-# from dropbox.exceptions import AuthError
+from os.path import basename
 from dotenv import dotenv_values
 import csv
+import types
+from functools import partial
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from up_to_dropbox import *
 from dropbox_content_hasher import DropboxContentHasher
+
+from tqdm import tqdm
 
 keys = dotenv_values('./.env_dropbox')
 APP_KEY = keys['APP_KEY']
@@ -41,23 +43,30 @@ class DropBoxUpload:
                 time_elapsed = time.time() - since
                 print('Uploaded {} {:.2f}%'.format(file_path, 100).ljust(15) + ' --- {:.0f}m {:.0f}s'.format(time_elapsed//60,time_elapsed%60).rjust(15))
             else:
+                pbar = tqdm(unit='M', unit_scale=True, unit_divisor=1024, total=file_size)
+                # pbar.clear()
                 upload_session_start_result = dbx.files_upload_session_start(f.read(CHUNK_SIZE))
                 cursor = dropbox.files.UploadSessionCursor(session_id=upload_session_start_result.session_id,
-                                                           offset=f.tell())
+                                                        offset=f.tell())
                 commit = dropbox.files.CommitInfo(path=dest_path, mode=dropbox.files.WriteMode("overwrite"))
+                pbar.update(CHUNK_SIZE)
                 while f.tell() <= file_size:
                     if ((file_size - f.tell()) <= CHUNK_SIZE):
+                        pbar_update = file_size - f.tell()
                         meta = dbx.files_upload_session_finish(f.read(CHUNK_SIZE), cursor, commit)
-                        time_elapsed = time.time() - since
-                        print('Uploaded {:.2f}%'.format(100).ljust(15) + ' --- {:.0f}m {:.0f}s'.format(time_elapsed//60,time_elapsed%60).rjust(15))
+                        pbar.update(pbar_update)
+                        # time_elapsed = time.time() - since
+                        # print('Uploaded {:.2f}%'.format(100).ljust(15) + ' --- {:.0f}m {:.0f}s'.format(time_elapsed//60,time_elapsed%60).rjust(15))
                         break
                     else:
                         dbx.files_upload_session_append_v2(f.read(CHUNK_SIZE),cursor)
                         cursor.offset = f.tell()
                         uploaded_size += CHUNK_SIZE
-                        uploaded_percent = 100*uploaded_size/file_size
-                        time_elapsed = time.time() - since
-                        print('Uploaded {} {:.2f}%'.format(file_path, uploaded_percent).ljust(15) + ' --- {:.0f}m {:.0f}s'.format(time_elapsed//60,time_elapsed%60).rjust(15), end='\r')
+                        pbar.update(CHUNK_SIZE)
+                        # uploaded_percent = 100*uploaded_size/file_size
+                        # time_elapsed = time.time() - since
+                        # print('Uploaded {} {:.2f}%'.format(file_path, uploaded_percent).ljust(15) + ' --- {:.0f}m {:.0f}s'.format(time_elapsed//60,time_elapsed%60).rjust(15), end='\r')
+                pbar.close()
         return meta
 
     def RenameFile(self, remote_folder_path, remote_name, remote_new_name):
@@ -80,21 +89,19 @@ class DropBoxUpload:
     def FileHash(self, local_file_path):
         print(f'Compute {local_file_path} content hash -- It may take a long time!')
         hasher = DropboxContentHasher()
-        range = 50
-        complete_sign = '='
-        not_complete_sign = ' '
         file_size = os.path.getsize(local_file_path)
         chunked_size = 0
-        percent = int(ceil((chunked_size  / file_size) * 100))
         with open(local_file_path, 'rb') as f:  # Slow for big file
+            pbar = tqdm(unit='G', unit_scale=True, unit_divisor=1024, total=file_size)
+            pbar.clear()
             while True:
                 chunk = f.read(1024)
                 chunked_size += 1024
-                percent = 100 if chunked_size > file_size else int(ceil((chunked_size / file_size) * 100))
-                print('[', round(percent * range / 100) * complete_sign, round(range*(100 - percent) / 100) * not_complete_sign, ']', end='\r')
+                pbar.update(1024)
                 if len(chunk) == 0:
                     break
                 hasher.update(chunk)
+            pbar.close()
         hash_info = hasher.hexdigest()
         return hash_info
     
@@ -124,43 +131,11 @@ class DropBoxUpload:
                 # remote_file_names = [r['name'] for f in remote_files_list for r in f['revisions'] + [{'name': f['name']}]]
                 remote_file_hashs = [r['hash'] for f in remote_files_list for r in (f['revisions'] + [{'hash': f['hash']}])]
                 uploaded_original_names = [row['original_name'] for row in history if row['hash'] in set(remote_file_hashs)]
-                # print(uploaded_original_names, local_files_list)
                 files_need_to_upload = [n for n in local_files_list if n not in uploaded_original_names]
         except dropbox.exceptions.ApiError as e:
             print('Error happen in FileNeedUpload', e)
             files_need_to_upload = [n for n in local_files_list]
 
-
-        # Method 1: Compare content_hash
-        # remote_hashs = list(set(reduce(lambda l1, l2: l1 + l2, [l['hashs'] for l in list(remote_files_list)], [])))
-        # local_files_to_upload = []
-        # for p in local_files_list:
-        #    hasher = DropboxContentHasher()
-        #    with open(local_folder_path + '/' + p, 'rb') as f:  # Slow for big file
-        #        while True:
-        #            chunk = f.read(1024)
-        #            if len(chunk) == 0:
-        #                break
-        #            hasher.update(chunk)
-        #    hash_info = hasher.hexdigest()
-        #    if hash_info not in remote_hashs:
-        #        local_files_to_upload.append(p)
-        #    else:
-        #        # Already uploaded => SKIP
-        #        print(p, ': already uploaded!')
-
-        # Method 2: Compare revision name (using approach up original_name [then delete the new_name] then rename to new_name)
-        
-        # remote_revision_names = [r['name'] for f in remote_files_list for r in f['revisions']]
-        # print(remote_revision_names)
-        # for n in local_files_list:
-        #     if n in remote_revision_names:
-        #         print(n, ': already uploaded!')
-        #     else:
-        # local_files_to_upload = [n for n in local_files_list if n not in remote_revision_names]
-        #         local_files_to_upload.append(n)
-
-        # new_file_paths = []
         new_file_names = []
         if self.monthly_mode:
             new_file_names = map(lambda p: self.MonthlyFileName(p), files_need_to_upload)
@@ -208,10 +183,29 @@ class DropBoxUpload:
         return file_name
 
     def ZipFile(self, local_file_path, local_zip_path):
-        print(f'Zipping {local_file_path} ... -- It may take time!')
+        """
+            - Zipping file with integrated progress bar
+            - Inspired: https://stackoverflow.com/questions/28522669/how-to-print-the-percentage-of-zipping-a-file-python/41664456#41664456
+            - NOTE: types.MethodType and partial
+        """
+        file_size = os.path.getsize(local_file_path)
+        def progress(total_size, original_write, self, buf):
+            progress.bytes += len(buf)
+            progress.obytes += 1024 * 8  # Hardcoded in zipfile.write
+            progress.bar.update(1024 * 8)
+            return original_write(buf)
+        progress.bar = tqdm(unit='G', unit_scale=True, unit_divisor=1024, total=file_size)
+        progress.bar.clear()
+        progress.bytes = 0
+        progress.obytes = 0
+        
+        print(f'Zipping {local_zip_path} ... -- It may take time!')
+        
         try:
-            with ZipFile(local_zip_path, 'w', ZIP_DEFLATED, compresslevel=5) as zip_file:
-                zip_file.write(local_file_path)
+            with ZipFile(local_zip_path, 'w', ZIP_DEFLATED, compresslevel=5) as _zip:
+                _zip.fp.write = types.MethodType(partial(progress, file_size, _zip.fp.write), _zip.fp)
+                _zip.write(local_file_path, arcname=basename(local_file_path))  # do NOT keep the absolute directory
+                progress.bar.close()
         except Exception as e:
             print('Error happen in ZipFile', e)
             raise e
