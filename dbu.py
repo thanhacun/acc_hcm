@@ -233,6 +233,8 @@ def main():
                 try:
                     dbu.ZipFile(path, './temp.zip')
                     meta = dbu.UpLoadFile(args.upload_path, './temp.zip', new_name + '.zip')
+                    if isinstance(meta, dropbox.files.FileMetadata):
+                        os.remove('./temp.zip')
                 except Exception as e:
                     print('Error happen', e)
             else:
@@ -248,7 +250,7 @@ def main():
                 print('Upload not successfully.')
         if update_history_rows:
             meta = dbu.UpdateHistory(args.upload_path, update_history_rows)
-            if isinstance(meta, dropbox.files.Metadata):
+            if isinstance(meta, dropbox.files.FileMetadata):
                 print('History updated successfully!')
 
         try:
@@ -264,7 +266,8 @@ def main():
             try:
                 dbu.ZipFile(args.file_path, './temp.zip')
                 meta = dbu.UpLoadFile(args.upload_path, './temp.zip', args.file_path.split('/')[-1] + '.zip')
-                os.remove('./temp.zip')
+                if isinstance(meta, dropbox.files.FileMetatdata):
+                    os.remove('./temp.zip')
             except Exception as e:
                 print('Error happen', e)
         else:
