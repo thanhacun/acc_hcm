@@ -233,7 +233,6 @@ def main():
     parser.set_defaults(pbar=True)
     
     args = parser.parse_args()
-    print('=====', args)
 
     if args.mode in  ['folder', 'monthly']:
         dbu = DropBoxUpload(timeout=args.timeout, chunk=args.chunk, monthly_mode=True if args.mode == 'monthly' else False, show_pbar=args.pbar)
