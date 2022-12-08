@@ -218,10 +218,20 @@ def main():
     parser.add_argument('file_path', type=str, help='path to file to upload, in monthly_mode this is the folder name')
     parser.add_argument('--mode', type=str, default='', help='Upload mode: default, folder or monthly')
     parser.add_argument('--re', type=str, default='', help='regex for daily backup file to extract filename and datetime')  # only need in customize case
-    parser.add_argument('--zip', action=argparse.BooleanOptionalAction, help='Zip the file or not')
+
+    # parser.add_argument('--zip', action=argparse.BooleanOptionalAction, help='Zip the file or not')  # Only for python 3.9+
+    parser.add_argument('--zip', action='store_true')
+    parser.add_argument('--no-zip', action='store_false')
+    parser.set_defaults(zip=True)
+
     parser.add_argument('--timeout', type=int, default=900)
     parser.add_argument('--chunk', type=int, default=8, help='chunk size in MB')
-    parser.add_argument('--pbar', action=argparse.BooleanOptionalAction, help='showing progress bar')
+
+    # parser.add_argument('--pbar', action=argparse.BooleanOptionalAction, help='showing progress bar')  # Only for python 3.9+
+    parser.add_argument('--pbar', action='store_true')
+    parser.add_argument('--no-pbar', action='store_false')
+    parser.set_defaults(pbar=True)
+    
     args = parser.parse_args()
 
     if args.mode in  ['folder', 'monthly']:
