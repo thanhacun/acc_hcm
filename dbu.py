@@ -221,7 +221,7 @@ def main():
 
     # parser.add_argument('--zip', action=argparse.BooleanOptionalAction, help='Zip the file or not')  # Only for python 3.9+
     parser.add_argument('--zip', action='store_true')
-    parser.add_argument('--no-zip', action='store_false')
+    parser.add_argument('--no-zip', dest='zip', action='store_false')
     parser.set_defaults(zip=True)
 
     parser.add_argument('--timeout', type=int, default=900)
@@ -229,10 +229,11 @@ def main():
 
     # parser.add_argument('--pbar', action=argparse.BooleanOptionalAction, help='showing progress bar')  # Only for python 3.9+
     parser.add_argument('--pbar', action='store_true')
-    parser.add_argument('--no-pbar', action='store_false')
+    parser.add_argument('--no-pbar', dest='pbar', action='store_false')
     parser.set_defaults(pbar=True)
     
     args = parser.parse_args()
+    print('=====', args)
 
     if args.mode in  ['folder', 'monthly']:
         dbu = DropBoxUpload(timeout=args.timeout, chunk=args.chunk, monthly_mode=True if args.mode == 'monthly' else False, show_pbar=args.pbar)
