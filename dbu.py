@@ -18,7 +18,7 @@ APP_SECRET = keys['APP_SECRET']
 REFRESH_TOKEN = keys['REFRESH_TOKEN']
 
 class DropBoxUpload:
-    def __init__(self,timeout=900,chunk=8, monthly_mode=False, monthly_regex=''):
+    def __init__(self,timeout=900,chunk=8, monthly_mode=False, monthly_regex='', show_pbar=True):
         self.APP_KEY = APP_KEY
         self.APP_SECRET = APP_SECRET
         self.REFRESH_TOKEN = REFRESH_TOKEN
@@ -27,9 +27,9 @@ class DropBoxUpload:
         self.monthly_mode = monthly_mode  # Upload override daily backup file for a month (using dropbox version to restore)
         self.monthly_regex = monthly_regex or '(.*)(\d{8}).*(\..*)'
         self.dbx = dropbox.Dropbox(app_key=self.APP_KEY, app_secret=self.APP_SECRET, oauth2_refresh_token=self.REFRESH_TOKEN)
+        self.show_pbar = show_pbar
 
     def UpLoadFile(self, upload_path, file_path, new_file_path=None):
-        # dbx = dropbox.Dropbox(app_key=self.APP_KEY, app_secret=self.APP_SECRET, oauth2_refresh_token=self.REFRESH_TOKEN)
         dbx = self.dbx
         file_size = os.path.getsize(file_path)
         CHUNK_SIZE = self.chunk * 1024 * 1024
@@ -43,7 +43,7 @@ class DropBoxUpload:
                 time_elapsed = time.time() - since
                 print('Uploaded {} {:.2f}%'.format(file_path, 100).ljust(15) + ' --- {:.0f}m {:.0f}s'.format(time_elapsed//60,time_elapsed%60).rjust(15))
             else:
-                pbar = tqdm(unit='M', unit_scale=True, unit_divisor=1024, total=file_size)
+                pbar = tqdm(unit='M', unit_scale=True, unit_divisor=1024, total=file_size, disable=not self.show_pbar)
                 # pbar.clear()
                 upload_session_start_result = dbx.files_upload_session_start(f.read(CHUNK_SIZE))
                 cursor = dropbox.files.UploadSessionCursor(session_id=upload_session_start_result.session_id,
@@ -92,7 +92,7 @@ class DropBoxUpload:
         file_size = os.path.getsize(local_file_path)
         chunked_size = 0
         with open(local_file_path, 'rb') as f:  # Slow for big file
-            pbar = tqdm(unit='G', unit_scale=True, unit_divisor=1024, total=file_size)
+            pbar = tqdm(unit='G', unit_scale=True, unit_divisor=1024, total=file_size, disable=not self.show_pbar)
             pbar.clear()
             while True:
                 chunk = f.read(1024)
@@ -196,7 +196,7 @@ class DropBoxUpload:
             progress.obytes += 1024 * 8  # Hardcoded in zipfile.write
             progress.bar.update(1024 * 8)
             return original_write(buf)
-        progress.bar = tqdm(unit='G', unit_scale=True, unit_divisor=1024, total=file_size)
+        progress.bar = tqdm(unit='G', unit_scale=True, unit_divisor=1024, total=file_size, disable=not self.show_pbar)
         progress.bar.clear()
         progress.bytes = 0
         progress.obytes = 0
@@ -218,13 +218,14 @@ def main():
     parser.add_argument('file_path', type=str, help='path to file to upload, in monthly_mode this is the folder name')
     parser.add_argument('--mode', type=str, default='', help='Upload mode: default, folder or monthly')
     parser.add_argument('--re', type=str, default='', help='regex for daily backup file to extract filename and datetime')  # only need in customize case
-    parser.add_argument('--zip', type=bool, default=False, help='Zip the file or not')
+    parser.add_argument('--zip', action=argparse.BooleanOptionalAction, help='Zip the file or not')
     parser.add_argument('--timeout', type=int, default=900)
     parser.add_argument('--chunk', type=int, default=8, help='chunk size in MB')
+    parser.add_argument('--pbar', action=argparse.BooleanOptionalAction, help='showing progress bar')
     args = parser.parse_args()
 
     if args.mode in  ['folder', 'monthly']:
-        dbu = DropBoxUpload(timeout=args.timeout, chunk=args.chunk, monthly_mode=True if args.mode == 'monthly' else False)
+        dbu = DropBoxUpload(timeout=args.timeout, chunk=args.chunk, monthly_mode=True if args.mode == 'monthly' else False, show_pbar=args.pbar)
         file_paths = dbu.FileNeedUpload(args.upload_path, args.file_path)
         update_history_rows = []
         for path, new_name in file_paths:
