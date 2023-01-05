@@ -190,27 +190,51 @@ class DropBoxUpload:
             - Inspired: https://stackoverflow.com/questions/28522669/how-to-print-the-percentage-of-zipping-a-file-python/41664456#41664456
             - NOTE: types.MethodType and partial
         """
-        file_size = os.path.getsize(local_file_path)
         def progress(total_size, original_write, self, buf):
             progress.bytes += len(buf)
             progress.obytes += 1024 * 8  # Hardcoded in zipfile.write
             progress.bar.update(1024 * 8)
             return original_write(buf)
-        progress.bar = tqdm(unit='G', unit_scale=True, unit_divisor=1024, total=file_size, disable=not self.show_pbar)
+
+        def zipdir(path, ziph):
+            # ziph is zipfile handle
+            for root, dirs, files in os.walk(path):
+                for file in files:
+                    ziph.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), os.path.join(path, '..')))
+
+        def dirsize(path):
+            res = 0
+            for root, dirs, files in os.walk(path):
+                for file in files:
+                    fp = os.path.join(root, file)
+                    res += os.path.getsize(fp)
+            return res
+    
+        total_size = os.path.getsize(local_file_path) if os.path.isfile(local_file_path) else dirsize(local_file_path)
+        progress.bar = tqdm(unit='G', unit_scale=True, unit_divisor=1024, total=total_size, disable=not self.show_pbar)
         progress.bar.clear()
         progress.bytes = 0
         progress.obytes = 0
-        
         print(f'Zipping {local_zip_path} ... -- It may take time!')
-        
-        try:
-            with ZipFile(local_zip_path, 'w', ZIP_DEFLATED, compresslevel=5) as _zip:
-                _zip.fp.write = types.MethodType(partial(progress, file_size, _zip.fp.write), _zip.fp)
-                _zip.write(local_file_path, arcname=basename(local_file_path))  # do NOT keep the absolute directory
-            progress.bar.close()
-        except Exception as e:
-            print('Error happen in ZipFile', e)
-            raise e
+
+        if os.path.isfile(local_file_path):
+            try:
+                with ZipFile(local_zip_path, 'w', ZIP_DEFLATED, compresslevel=5) as _zip:
+                    _zip.fp.write = types.MethodType(partial(progress, total_size, _zip.fp.write), _zip.fp)
+                    _zip.write(local_file_path, arcname=basename(local_file_path))  # do NOT keep the absolute directory
+                progress.bar.close()
+            except Exception as e:
+                print('Error happen while zipping a file', e)
+                raise e
+        else:
+            try:
+                with ZipFile(local_zip_path, 'w', ZIP_DEFLATED, compresslevel=5) as _zip:
+                    _zip.fp.write = types.MethodType(partial(progress, total_size, _zip.fp.write), _zip.fp)
+                    zipdir(local_file_path, _zip)
+                progress.bar.close()
+            except Exception as e:
+                print('Error happen while zipping a folder', e)
+                raise e
 
 def main():
     parser = argparse.ArgumentParser()
@@ -236,6 +260,20 @@ def main():
 
     if args.mode in  ['folder', 'monthly']:
         dbu = DropBoxUpload(timeout=args.timeout, chunk=args.chunk, monthly_mode=True if args.mode == 'monthly' else False, show_pbar=args.pbar)
+        # TODO [X]: Handle zip and upload for folder
+        if args.mode == 'folder' and args.zip and os.path.isdir(args.file_path):
+            dir_name = os.path.basename(args.file_path)
+            print(dir_name, '=>', args.upload_path, 'on Dropbox', '=>', dir_name + '.zip')
+            try:
+                dbu.ZipFile(args.file_path, './temp.zip')
+                meta = dbu.UpLoadFile(args.upload_path, './temp.zip', dir_name +'.zip')
+                if isinstance(meta, dropbox.files.FileMetadata):
+                    os.remove('./temp.zip')
+                return meta
+            except Exception as e:
+                print(f'Error while zipping and sending the zip file to Dropbox {e}')
+                raise e
+        
         file_paths = dbu.FileNeedUpload(args.upload_path, args.file_path)
         update_history_rows = []
         for path, new_name in file_paths:
