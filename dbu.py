@@ -189,6 +189,8 @@ class DropBoxUpload:
             - Zipping file with integrated progress bar
             - Inspired: https://stackoverflow.com/questions/28522669/how-to-print-the-percentage-of-zipping-a-file-python/41664456#41664456
             - NOTE: types.MethodType and partial
+            - Zip a folder
+            - ref: https://stackoverflow.com/a/1855118
         """
         def progress(total_size, original_write, self, buf):
             progress.bytes += len(buf)
@@ -255,12 +257,19 @@ def main():
     parser.add_argument('--pbar', action='store_true')
     parser.add_argument('--no-pbar', dest='pbar', action='store_false')
     parser.set_defaults(pbar=True)
+
+    # Delete on success (default to False)
+    parser.add_argument('--delete', action='store_true')
+    parser.add_argument('--no-delete', dest='delete', action='store_false')
+    parser.set_defaults(delete=False)
     
     args = parser.parse_args()
 
     if args.mode in  ['folder', 'monthly']:
         dbu = DropBoxUpload(timeout=args.timeout, chunk=args.chunk, monthly_mode=True if args.mode == 'monthly' else False, show_pbar=args.pbar)
         # TODO [X]: Handle zip and upload for folder
+        # TODO [X]: Handle delete on success
+        delete_on_success = args.delete
         if args.mode == 'folder' and args.zip and os.path.isdir(args.file_path):
             dir_name = os.path.basename(args.file_path)
             print(dir_name, '=>', args.upload_path, 'on Dropbox', '=>', dir_name + '.zip')
@@ -269,6 +278,8 @@ def main():
                 meta = dbu.UpLoadFile(args.upload_path, './temp.zip', dir_name +'.zip')
                 if isinstance(meta, dropbox.files.FileMetadata):
                     os.remove('./temp.zip')
+                    if delete_on_success:
+                        pass
                 return meta
             except Exception as e:
                 print(f'Error while zipping and sending the zip file to Dropbox {e}')
@@ -288,6 +299,7 @@ def main():
                     print('Error happen', e)
             else:
                 meta = dbu.UpLoadFile(args.upload_path, path, new_name)
+
             if isinstance(meta, dropbox.files.FileMetadata):
                 update_history_rows.append({
                     'id': meta.id, 'original_name': path.split('/')[-1], 
@@ -295,12 +307,19 @@ def main():
                     # 'hash': dbu.FileHash('./temp.zip'), 
                     'hash': meta.content_hash,
                     'server_modified': meta.server_modified})
+                if delete_on_success:
+                    # TODO []: can delete local uploaded file here
+                    os.remove(path)
+                    print('Remove uploaded local file: {}'.format(path))
             else:
                 print('Upload not successfully.')
+
         if update_history_rows:
-            meta = dbu.UpdateHistory(args.upload_path, update_history_rows)
-            if isinstance(meta, dropbox.files.FileMetadata):
+            history_meta = dbu.UpdateHistory(args.upload_path, update_history_rows)
+            if isinstance(history_meta, dropbox.files.FileMetadata):
                 print('History updated successfully!')
+            else:
+                print('Update history file not successfully!')
 
         try:
             os.remove('./temp_history.csv')
@@ -317,6 +336,8 @@ def main():
                 meta = dbu.UpLoadFile(args.upload_path, './temp.zip', args.file_path.split('/')[-1] + '.zip')
                 if isinstance(meta, dropbox.files.FileMetatdata):
                     os.remove('./temp.zip')
+                    if delete_on_success:
+                        os.remove(args.upload_path)
             except Exception as e:
                 print('Error happen', e)
         else:
