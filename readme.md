@@ -33,3 +33,13 @@ unzip restored.zip
 ```
 Test file for practice: Dropbox `/_encryption_test/encryption_test.txt.zip.age` (sha256 of the inner file: b62d79afcad851d4517889ae3e88cc53bce225bcb1b17f60cb568fb4cdb00f80).
 Files uploaded before encryption was enabled are plain `.zip` (no decryption needed).
+
+## HCMC site (sadmin@192.168.1.18, ~/acc_hcm) — same repo, set up 2026-11-18
+- Updated with `git pull` from GitHub. Not in git, copy by hand: `.age_recipient` (same public key as HN -> one private key restores both), `.hc_url` (HCMC has its OWN healthchecks check, different from HN), `.env_dropbox`, `.smb`.
+- `age` is not in apt there (Ubuntu 20.04, no sudo): static binary v1.2.1 in `~/.local/bin/age`, so cron sets PATH.
+- `run_backup.sh` is configured by env vars (defaults = HN): `BACKUP_DIR`, `MOUNT_DIR`, `UPLOAD_PATH`, `DELETE`.
+- Cron (server is UTC; 14:10 UTC = 21:10 Vietnam):
+  `10 14 * * 2-6 cd /home/sadmin/acc_hcm && PATH=$HOME/.local/bin:$PATH BACKUP_DIR=./backups/KINDEN60 MOUNT_DIR=./backups UPLOAD_PATH=/KINDEN60 DELETE=0 ./run_backup.sh`
+- `DELETE=0`: files stay on the share (//192.168.1.19/backup). Logs: `~/acc_hcm/logs/YYYYMM.log`.
+- The Odoo DB backup (`~/backup_odoo.sh`, 15:10 UTC) is a separate job. The old HN cron line that SSHed into HCMC is commented out.
+- First run verified 2026-11-18: `/KINDEN60/EFF_KINDEN_HCM202611.effs.zip.age`, HC ping confirmed.
