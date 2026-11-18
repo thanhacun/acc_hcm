@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -79,6 +80,38 @@ def make_zip(src, dest_zip):
                 for name in files:
                     p = join(root, name)
                     z.write(p, os.path.relpath(p, parent))
+
+
+def encrypt_file(src, dest, recipients_file):
+    """Encrypt with age to the public key(s) in recipients_file (the private key is NOT on this machine)."""
+    subprocess.run(['age', '-R', recipients_file, '-o', dest, src], check=True)
+
+
+def prepare_payload(args, src, remote_base, workdir):
+    """Zip and/or encrypt `src` inside workdir. Returns (path_to_upload, remote_name)."""
+    cur, name = src, remote_base
+    steps = int(args.zip) + int(bool(args.encrypt_to))
+    if steps:
+        check_free_space(workdir, path_size(src) * steps)
+    if args.zip:
+        z = join(workdir, 'payload.zip')
+        log.info('Zipping %s ...', src)
+        make_zip(cur, z)
+        cur, name = z, name + '.zip'
+    if args.encrypt_to:
+        e = join(workdir, 'payload.age')
+        log.info('Encrypting %s ...', cur)
+        encrypt_file(cur, e, args.encrypt_to)
+        if cur != src:
+            os.remove(cur)  # free the plain zip right away
+        cur, name = e, name + '.age'
+    return cur, name
+
+
+def clean_payload(workdir):
+    for n in ('payload.zip', 'payload.age'):
+        if os.path.exists(join(workdir, n)):
+            os.remove(join(workdir, n))
 
 
 def check_free_space(directory, needed):
@@ -213,17 +246,14 @@ def run_single(dbu, args, workdir):
         log.error('%s does not exist', src)
         return 2
     name = basename(src.rstrip('/'))
-    if args.zip:
-        upload_src, remote = join(workdir, 'upload.zip'), name + '.zip'
-        check_free_space(workdir, path_size(src))
-        log.info('Zipping %s ...', src)
-        make_zip(src, upload_src)
-    elif os.path.isdir(src):
+    if os.path.isdir(src) and not args.zip:
         log.error('Cannot upload a folder without --zip')
         return 2
-    else:
-        upload_src, remote = src, name
-    dbu.upload_verified(args.upload_path, upload_src, remote)
+    upload_src, remote = prepare_payload(args, src, name, workdir)
+    try:
+        dbu.upload_verified(args.upload_path, upload_src, remote)
+    finally:
+        clean_payload(workdir)
     if args.delete:
         if os.path.isfile(src):
             os.remove(src)
@@ -250,29 +280,22 @@ def run_files(dbu, args, workdir):
     if args.dry_run:
         for path, remote_name in pending:
             log.info('[dry-run] %s (%d MB) -> %s/%s%s', path, os.path.getsize(path) >> 20, folder,
-                     remote_name, '.zip' if args.zip else '')
+                     remote_name, ('.zip' if args.zip else '') + ('.age' if args.encrypt_to else ''))
         log.info('[dry-run] nothing uploaded, nothing deleted')
         return 0
 
     failures, new_rows = 0, []
-    zip_path = join(workdir, 'upload.zip')
     for path, remote_name in pending:
         meta = None  # never reuse the previous file's result
         try:
-            if args.zip:
-                check_free_space(workdir, os.path.getsize(path))
-                log.info('Zipping %s ...', path)
-                make_zip(path, zip_path)
-                meta = dbu.upload_verified(folder, zip_path, remote_name + '.zip')
-            else:
-                meta = dbu.upload_verified(folder, path, remote_name)
+            upload_src, rname = prepare_payload(args, path, remote_name, workdir)
+            meta = dbu.upload_verified(folder, upload_src, rname)
         except Exception:
             log.exception('FAILED to upload %s', path)
             failures += 1
             continue
         finally:
-            if os.path.exists(zip_path):
-                os.remove(zip_path)
+            clean_payload(workdir)
 
         new_rows.append({'id': meta.id, 'original_name': basename(path), 'new_name': meta.name,
                          'hash': meta.content_hash, 'server_modified': meta.server_modified})
@@ -314,6 +337,8 @@ def build_parser():
     p.add_argument('--fail-if-empty', action='store_true', help='exit 2 if the local folder has no files')
     p.add_argument('--min-age', type=int, default=300,
                    help='skip files modified less than N seconds ago (still being written); default 300')
+    p.add_argument('--encrypt-to', default=None, metavar='FILE',
+                   help='age recipients (public key) file; encrypt uploads to <name>[.zip].age')
     p.add_argument('--tmp-dir', default=None, help='where to build temporary zip files (needs free space)')
     return p
 
@@ -323,6 +348,9 @@ def main(argv=None):
     logging.getLogger('dropbox').setLevel(logging.WARNING)  # hide per-request INFO noise
     args = build_parser().parse_args(argv)
     per_file = args.mode in ('folder', 'monthly') and not (args.mode == 'folder' and args.zip and os.path.isdir(args.file_path))
+    if args.encrypt_to and (not os.path.isfile(args.encrypt_to) or not shutil.which('age')):
+        log.error('--encrypt-to needs an existing recipients file and the `age` binary (sudo apt install age)')
+        return 2
     workdir = tempfile.mkdtemp(prefix='dbu_', dir=args.tmp_dir)
     try:
         dbu = DropBoxUpload(timeout=args.timeout, chunk=args.chunk, monthly_mode=args.mode == 'monthly',

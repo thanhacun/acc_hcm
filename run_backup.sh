@@ -28,7 +28,15 @@ hc /start
 mountpoint -q "$BACKUP_DIR" || fail "$BACKUP_DIR is not mounted"
 ls "$BACKUP_DIR" > /dev/null 2>&1 || fail "$BACKUP_DIR is not readable"
 
-python3 dbu.py '' "$BACKUP_DIR" --mode monthly --zip --no-pbar --delete --fail-if-empty >> "$LOG" 2>&1
+# Encryption: enabled when ./.age_recipient (age PUBLIC key) exists. Private key must NOT be on this machine.
+ENC_ARGS=()
+if [ -f .age_recipient ]; then
+    ENC_ARGS=(--encrypt-to .age_recipient)
+else
+    log "WARNING: .age_recipient not found - uploading UNENCRYPTED"
+fi
+
+python3 dbu.py '' "$BACKUP_DIR" --mode monthly --zip --no-pbar --delete --fail-if-empty "${ENC_ARGS[@]}" >> "$LOG" 2>&1
 rc=$?
 [ "$rc" -eq 0 ] || fail "dbu.py exited with $rc"
 
